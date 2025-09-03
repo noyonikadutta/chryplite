@@ -1,103 +1,183 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
+import { supabase } from "../lib/supabaseClient";
+
+type Post = {
+  id: number;
+  title: string;
+  content: string | null;
+  read_time: number | null;
+  tags: string[] | null;
+  media_urls: string[] | null;
+  created_at: string;
+};
+
+const PAGE_SIZE = 12; // 3x4 grid per “page”
+
+export default function HomePage() {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const getReadTime = (post: Post) => {
+    if (post.read_time && post.read_time > 0) return post.read_time;
+    const words = (post.content || "").trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(1, Math.ceil(words / 200)); // fallback
+  };
+
+  const fetchPage = useCallback(
+    async (pageNum: number) => {
+      if (loading || !hasMore) return;
+      setLoading(true);
+      setError(null);
+
+      const from = pageNum * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data, error } = await supabase
+        .from("posts")
+        .select("id, title, content, tags, media_urls, read_time, created_at")
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        console.error(error);
+        setError("Failed to load posts.");
+        setLoading(false);
+        return;
+      }
+
+      const newItems = data ?? [];
+      setPosts((prev) => {
+      const merged = [...prev, ...newItems];
+      // Deduplicate by post.id
+      const unique = Array.from(new Map(merged.map(p => [p.id, p])).values());
+      return unique;
+    });
+
+
+      // if fewer than a full page returned, we’re at the end
+      if (newItems.length < PAGE_SIZE) setHasMore(false);
+
+      setLoading(false);
+    },
+    [loading, hasMore]
+  );
+
+  // first load
+  useEffect(() => {
+    fetchPage(0);
+  }, [fetchPage]);
+
+  // observe bottom sentinel for infinite scroll
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && hasMore && !loading) {
+          const next = page + 1;
+          setPage(next);
+          fetchPage(next);
+        }
+      },
+      { rootMargin: "200px" } // prefetch a bit before reaching bottom
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [page, hasMore, loading, fetchPage]);
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="min-h-screen bg-gradient-to-br from-purple-600 to-pink-500">
+      {/* header */}
+      <div className="max-w-6xl mx-auto px-4 pt-8 pb-4 text-white">
+        <h1 className="text-3xl md:text-4xl font-extrabold">For You</h1>
+        <p className="opacity-90 mt-1">Fresh posts, 3×4 grid, infinite scroll.</p>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      {/* grid */}
+      <section className="max-w-6xl mx-auto px-4 pb-16">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {posts.map((post) => (
+            <Link key={post.id} href={`/post/${post.id}`}>
+              <article className="group relative bg-white rounded-2xl shadow hover:shadow-xl transition overflow-hidden cursor-pointer">
+                {/* media thumbnail if any */}
+                <div className="aspect-[4/3] w-full bg-gray-100 overflow-hidden">
+                  {post.media_urls && post.media_urls.length > 0 ? (
+                    // image only as thumbnail; videos/audio will show on post page
+                    post.media_urls[0].match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                      <img
+                        src={post.media_urls[0]}
+                        alt={post.title}
+                        className="h-full w-full object-cover group-hover:scale-[1.02] transition"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-gray-500 text-sm">
+                        File: {post.media_urls[0].split("/").pop()}
+                      </div>
+                    )
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-gray-400">
+                      No media
+                    </div>
+                  )}
+                </div>
+
+                {/* content */}
+                <div className="p-4">
+                  <h2 className="font-semibold line-clamp-2">{post.title}</h2>
+                  <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                    {(post.content || "").slice(0, 120)}
+                    {(post.content || "").length > 120 ? "..." : ""}
+                  </p>
+
+                  {/* tags */}
+                  {post.tags?.slice(0, 3).map((t) => (
+                    <span
+                      key={`${post.id}-${t}`} // unique key using post id + tag
+                      className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700"
+                    >
+                      #{t}
+                    </span>
+                  ))}
+                    </div>
+                
+
+                {/* min-read badge */}
+                <span className="absolute top-3 right-3 text-xs font-medium bg-black/70 text-white px-2 py-1 rounded-full">
+                  {getReadTime(post)} min read
+                </span>
+              </article>
+            </Link>
+          ))}
+
+          {/* skeletons while loading (first page especially) */}
+          {loading && posts.length === 0 &&
+            Array.from({ length: PAGE_SIZE }).map((_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="animate-pulse bg-white/60 rounded-2xl h-64"
+              />
+            ))}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {/* loading / end / error states */}
+        <div className="mt-6 text-center text-white/90">
+          {loading && posts.length > 0 && <p>Loading more…</p>}
+          {!hasMore && posts.length > 0 && <p>That’s all for now ✨</p>}
+          {error && <p className="text-red-100">{error}</p>}
+        </div>
+
+        {/* sentinel: must be present for the observer */}
+        <div ref={sentinelRef} className="h-1" />
+      </section>
+    </main>
   );
 }
