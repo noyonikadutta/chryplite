@@ -27,7 +27,7 @@ export default function HomePage() {
   const getReadTime = (post: Post) => {
     if (post.read_time && post.read_time > 0) return post.read_time;
     const words = (post.content || "").trim().split(/\s+/).filter(Boolean).length;
-    return Math.max(1, Math.ceil(words / 200)); // fallback
+    return Math.max(1, Math.ceil(words / 200));
   };
 
   const fetchPage = useCallback(
@@ -53,15 +53,8 @@ export default function HomePage() {
       }
 
       const newItems = data ?? [];
-      setPosts((prev) => {
-      const merged = [...prev, ...newItems];
-      // Deduplicate by post.id
-      const unique = Array.from(new Map(merged.map(p => [p.id, p])).values());
-      return unique;
-    });
+      setPosts((prev) => [...prev, ...newItems]);
 
-
-      // if fewer than a full page returned, we’re at the end
       if (newItems.length < PAGE_SIZE) setHasMore(false);
 
       setLoading(false);
@@ -69,12 +62,10 @@ export default function HomePage() {
     [loading, hasMore]
   );
 
-  // first load
   useEffect(() => {
     fetchPage(0);
   }, [fetchPage]);
 
-  // observe bottom sentinel for infinite scroll
   useEffect(() => {
     if (!sentinelRef.current) return;
 
@@ -87,7 +78,7 @@ export default function HomePage() {
           fetchPage(next);
         }
       },
-      { rootMargin: "200px" } // prefetch a bit before reaching bottom
+      { rootMargin: "200px" }
     );
 
     observer.observe(sentinelRef.current);
@@ -108,10 +99,9 @@ export default function HomePage() {
           {posts.map((post) => (
             <Link key={post.id} href={`/post/${post.id}`}>
               <article className="group relative bg-white rounded-2xl shadow hover:shadow-xl transition overflow-hidden cursor-pointer">
-                {/* media thumbnail if any */}
+                {/* media thumbnail */}
                 <div className="aspect-[4/3] w-full bg-gray-100 overflow-hidden">
                   {post.media_urls && post.media_urls.length > 0 ? (
-                    // image only as thumbnail; videos/audio will show on post page
                     post.media_urls[0].match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                       <img
                         src={post.media_urls[0]}
@@ -139,16 +129,19 @@ export default function HomePage() {
                   </p>
 
                   {/* tags */}
-                  {post.tags?.slice(0, 3).map((t) => (
-                    <span
-                      key={`${post.id}-${t}`} // unique key using post id + tag
-                      className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700"
-                    >
-                      #{t}
-                    </span>
-                  ))}
+                  {post.tags && post.tags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {post.tags.slice(0, 3).map((t) => (
+                        <span
+                          key={`${post.id}-${t}`}
+                          className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700"
+                        >
+                          #{t}
+                        </span>
+                      ))}
                     </div>
-                
+                  )}
+                </div>
 
                 {/* min-read badge */}
                 <span className="absolute top-3 right-3 text-xs font-medium bg-black/70 text-white px-2 py-1 rounded-full">
@@ -158,7 +151,7 @@ export default function HomePage() {
             </Link>
           ))}
 
-          {/* skeletons while loading (first page especially) */}
+          {/* skeletons while loading */}
           {loading && posts.length === 0 &&
             Array.from({ length: PAGE_SIZE }).map((_, i) => (
               <div
@@ -175,7 +168,7 @@ export default function HomePage() {
           {error && <p className="text-red-100">{error}</p>}
         </div>
 
-        {/* sentinel: must be present for the observer */}
+        {/* sentinel */}
         <div ref={sentinelRef} className="h-1" />
       </section>
     </main>
